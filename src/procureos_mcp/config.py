@@ -1,24 +1,26 @@
-"""Configuration loading for the ProcureOS MCP server."""
-
 import os
 
-from dotenv import load_dotenv
+try:
+	from dotenv import load_dotenv
 
-load_dotenv()
-
-
-def get_required_env(name: str) -> str:
-    """Return a required environment variable or fail with a clear error."""
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
+	load_dotenv()
+except Exception:
+	pass
 
 
 DB_CONFIG = {
-    "host": get_required_env("DB_HOST"),
-    "port": int(os.getenv("DB_PORT", "5432")),
-    "database": get_required_env("DB_NAME"),
-    "user": get_required_env("DB_USER"),
-    "password": get_required_env("DB_PASSWORD"),
+	"host": os.getenv("DB_HOST", "100.72.202.71"),
+	"port": int(os.getenv("DB_PORT", "5432")),
+	"dbname": os.getenv("DB_NAME", "procureos_db"),
+	"user": os.getenv("DB_USER", "kushal"),
+	"password": os.getenv("DB_PASSWORD"),
 }
+
+
+def get_db_dsn() -> str:
+	password = DB_CONFIG.get("password")
+	if not password:
+		raise ValueError("DB_PASSWORD is required in environment variables.")
+	return (
+		"dbname={dbname} user={user} password={password} host={host} port={port}"
+	).format(**DB_CONFIG)

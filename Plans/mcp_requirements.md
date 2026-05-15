@@ -1,4 +1,5 @@
 # MCP server requirements
+
 ## ProcureOS — Thomasnet MVP
 
 ---
@@ -23,11 +24,11 @@ The server is always-on — it does not start per request. It runs as a persiste
 
 Before the MCP server can function, the following must be available:
 
-| Dependency | Purpose | Required for |
-|---|---|---|
-| PostgreSQL | Normalized vendor and product data | All tools except `create_po` live path |
-| Redis | Live fetch cache (quotes) | `get_quote`, `get_inventory` |
-| Thomasnet (live) | Real-time inventory and quote confirmation | `get_quote` (cache miss), `create_po` |
+| Dependency       | Purpose                                    | Required for                           |
+| ---------------- | ------------------------------------------ | -------------------------------------- |
+| PostgreSQL       | Normalized vendor and product data         | All tools except `create_po` live path |
+| Redis            | Live fetch cache (quotes)                  | `get_quote`, `get_inventory`           |
+| Thomasnet (live) | Real-time inventory and quote confirmation | `get_quote` (cache miss), `create_po`  |
 
 The MCP server does not manage these dependencies. It assumes they are running and reachable.
 
@@ -44,15 +45,15 @@ It never writes to PostgreSQL directly. The only write operation in the system i
 
 ## 3. Tech stack
 
-| Component | Technology | Reason |
-|---|---|---|
-| Language | TypeScript | Anthropic MCP SDK is TypeScript native |
-| Runtime | Node.js 20+ | Required by MCP SDK |
-| MCP SDK | `@anthropic-ai/mcp` | Official SDK, handles protocol, tool registration, transport |
-| Database client | `pg` (node-postgres) | PostgreSQL queries |
-| Cache client | `ioredis` | Redis cache for live fetch results |
-| HTTP client | `axios` | Live fetch calls to Thomasnet where needed |
-| Validation | `zod` | Input schema validation on every tool call |
+| Component       | Technology           | Reason                                                       |
+| --------------- | -------------------- | ------------------------------------------------------------ |
+| Language        | TypeScript           | Anthropic MCP SDK is TypeScript native                       |
+| Runtime         | Node.js 20+          | Required by MCP SDK                                          |
+| MCP SDK         | `@anthropic-ai/mcp`  | Official SDK, handles protocol, tool registration, transport |
+| Database client | `pg` (node-postgres) | PostgreSQL queries                                           |
+| Cache client    | `ioredis`            | Redis cache for live fetch results                           |
+| HTTP client     | `axios`              | Live fetch calls to Thomasnet where needed                   |
+| Validation      | `zod`                | Input schema validation on every tool call                   |
 
 ---
 
@@ -71,6 +72,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** PostgreSQL only. No live fetch.
 
 **Input schema:**
+
 ```typescript
 {
   query: string,          // product name, SKU, or category keyword
@@ -84,6 +86,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Output schema:**
+
 ```typescript
 {
   vendors: [
@@ -103,7 +106,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input against zod schema
 2. Build SQL query against vendors + products tables
 3. Apply filters if provided
@@ -111,6 +115,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Error cases:**
+
 - No vendors found → return empty array, `total_found: 0`
 - Invalid filter values → return validation error with field name
 
@@ -125,6 +130,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** PostgreSQL (primary). Redis cache checked first on repeat calls within the same session.
 
 **Input schema:**
+
 ```typescript
 {
   vendor_id: string,
@@ -133,6 +139,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Output schema:**
+
 ```typescript
 {
   vendor_id: string,
@@ -145,7 +152,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input
 2. Check Redis cache — key: "inventory:{vendor_id}:{sku}"
 3. Cache hit → return cached result
@@ -155,6 +163,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Error cases:**
+
 - `vendor_id` not found → return 404 error with message
 - `sku` not found for that vendor → return 404 error with message
 
@@ -169,6 +178,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** Redis cache first, then PostgreSQL, then live Thomasnet fetch if data is stale (older than 15 minutes).
 
 **Input schema:**
+
 ```typescript
 {
   vendor_id: string,
@@ -178,6 +188,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Output schema:**
+
 ```typescript
 {
   vendor_id: string,
@@ -193,7 +204,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input — quantity must be >= MOQ
 2. Check Redis cache — key: "quote:{vendor_id}:{sku}:{quantity}"
 3. Cache hit → return cached quote
@@ -204,6 +216,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Error cases:**
+
 - `quantity` below MOQ → return error with MOQ value so agent can adjust
 - Thomasnet live fetch fails → return last known price with `stale: true` flag
 - `vendor_id` or `sku` not found → return 404 error
@@ -219,6 +232,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** PostgreSQL only. Calls `get_quote` internally for each vendor to ensure prices are fresh.
 
 **Input schema:**
+
 ```typescript
 {
   sku: string,
@@ -228,6 +242,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Output schema:**
+
 ```typescript
 {
   sku: string,
@@ -249,7 +264,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input
 2. Query all vendors carrying this SKU from PostgreSQL
 3. For each vendor call get_quote internally to get fresh pricing
@@ -260,6 +276,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Error cases:**
+
 - No vendors found for SKU → return empty array
 - Only one vendor found → return single result with `single_source_flag: true`
 
@@ -274,6 +291,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** Live Thomasnet call to confirm and submit PO. Writes PO record to PostgreSQL `purchase_orders` table.
 
 **Input schema:**
+
 ```typescript
 {
   vendor_id: string,
@@ -285,6 +303,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Output schema:**
+
 ```typescript
 {
   po_id: string,              // generated: "PO_{timestamp}_{vendor_id}"
@@ -302,7 +321,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input
 2. Check total_price against approval thresholds:
      < $5,000   → auto_approve = true
@@ -320,12 +340,13 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 
 **Approval thresholds (MVP defaults):**
 
-| Order value | Action |
-|---|---|
-| Below $5,000 | Agent executes autonomously |
-| $5,000 and above | Flagged for human review |
+| Order value      | Action                      |
+| ---------------- | --------------------------- |
+| Below $5,000     | Agent executes autonomously |
+| $5,000 and above | Flagged for human review    |
 
 **Error cases:**
+
 - Stock no longer available at confirmation → return error, do not create PO
 - Thomasnet submission fails → return error with `retry: true` flag, do not write to DB
 - Quantity below MOQ → return error with MOQ value
@@ -341,13 +362,15 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** PostgreSQL `purchase_orders` table.
 
 **Input schema:**
+
 ```typescript
 {
-  po_id: string
+  po_id: string;
 }
 ```
 
 **Output schema:**
+
 ```typescript
 {
   po_id: string,
@@ -367,7 +390,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input
 2. Query purchase_orders table by po_id
 3. Join with vendors table to get vendor_name
@@ -375,6 +399,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Error cases:**
+
 - `po_id` not found → return 404 error
 
 ---
@@ -388,6 +413,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 **Data source:** Writes to PostgreSQL `review_queue` table.
 
 **Input schema:**
+
 ```typescript
 {
   po_id: string,
@@ -397,6 +423,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Output schema:**
+
 ```typescript
 {
   review_id: string,        // generated: "REV_{timestamp}"
@@ -410,7 +437,8 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Handler logic:**
-```
+
+``` text
 1. Validate input
 2. Write review record to review_queue table
 3. Update linked PO status to "flagged_for_review"
@@ -418,6 +446,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 ```
 
 **Error cases:**
+
 - `po_id` not found → return 404 error
 - Duplicate review for same PO → return existing review record
 
@@ -425,7 +454,7 @@ The MCP server exposes exactly 7 tools for MVP. No more, no less.
 
 ## 5. Tool call sequence — typical agent workflow
 
-```
+``` text
 Agent receives procurement task
         ↓
 search_vendors(query, filters)
@@ -470,29 +499,32 @@ Error response format (all tools):
 
 ## 7. Caching policy
 
-| Tool | Cache | TTL | Cache key |
-|---|---|---|---|
-| `search_vendors` | None | — | — |
-| `get_inventory` | Redis | 15 min | `inventory:{vendor_id}:{sku}` |
-| `get_quote` | Redis | 15 min | `quote:{vendor_id}:{sku}:{quantity}` |
-| `compare_vendors` | None | — | — |
-| `create_po` | None | — | — |
-| `get_po_status` | None | — | — |
-| `flag_for_review` | None | — | — |
+| Tool              | Cache | TTL    | Cache key                            |
+| ----------------- | ----- | ------ | ------------------------------------ |
+| `search_vendors`  | None  | —      | —                                    |
+| `get_inventory`   | Redis | 15 min | `inventory:{vendor_id}:{sku}`        |
+| `get_quote`       | Redis | 15 min | `quote:{vendor_id}:{sku}:{quantity}` |
+| `compare_vendors` | None  | —      | —                                    |
+| `create_po`       | None  | —      | —                                    |
+| `get_po_status`   | None  | —      | —                                    |
+| `flag_for_review` | None  | —      | —                                    |
 
 ---
 
 ## 8. Database tables the MCP server touches
 
 ### Read
+
 - `vendors` — all read tools
 - `products` — all read tools
 
 ### Write
+
 - `purchase_orders` — written by `create_po`
 - `review_queue` — written by `flag_for_review`
 
 ### `purchase_orders` table
+
 ```sql
 CREATE TABLE purchase_orders (
   po_id             VARCHAR PRIMARY KEY,
@@ -513,6 +545,7 @@ CREATE TABLE purchase_orders (
 ```
 
 ### `review_queue` table
+
 ```sql
 CREATE TABLE review_queue (
   review_id   VARCHAR PRIMARY KEY,
@@ -531,13 +564,13 @@ CREATE TABLE review_queue (
 
 The MCP server does not write files. Its outputs are:
 
-| Output | Where |
-|---|---|
-| Tool responses | Returned to the agent as structured JSON over MCP protocol |
-| PO records | Written to PostgreSQL `purchase_orders` table |
-| Review records | Written to PostgreSQL `review_queue` table |
-| Cache entries | Written to Redis with TTL |
-| Error responses | Returned to the agent as structured JSON |
+| Output          | Where                                                      |
+| --------------- | ---------------------------------------------------------- |
+| Tool responses  | Returned to the agent as structured JSON over MCP protocol |
+| PO records      | Written to PostgreSQL `purchase_orders` table              |
+| Review records  | Written to PostgreSQL `review_queue` table                 |
+| Cache entries   | Written to Redis with TTL                                  |
+| Error responses | Returned to the agent as structured JSON                   |
 
 ---
 
