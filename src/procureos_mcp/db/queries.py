@@ -81,3 +81,72 @@ def get_order_by_number(order_number: str):
 				"SELECT * FROM orders WHERE order_number = %s", (order_number,)
 			)
 			return cursor.fetchone()
+
+
+def get_orders_for_user(user_id: str, limit: int = 20):
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(
+				"""
+				SELECT *
+				FROM orders
+				WHERE user_id = %s
+				ORDER BY placed_at DESC
+				LIMIT %s
+				""",
+				(user_id, limit),
+			)
+			return cursor.fetchall()
+
+
+def get_order_items(order_id: str):
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(
+				"""
+				SELECT
+					oi.*,
+					p.name AS product_name,
+					p.description AS product_description,
+					p.price AS current_product_price
+				FROM order_items oi
+				JOIN products p ON p.id = oi.product_id
+				WHERE oi.order_id = %s
+				ORDER BY p.name ASC
+				""",
+				(order_id,),
+			)
+			return cursor.fetchall()
+
+
+def list_recent_orders(limit: int = 20):
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(
+				"""
+				SELECT
+					o.*,
+					u.email AS user_email,
+					u.first_name AS user_first_name,
+					u.last_name AS user_last_name
+				FROM orders o
+				JOIN users u ON u.id = o.user_id
+				ORDER BY o.placed_at DESC
+				LIMIT %s
+				""",
+				(limit,),
+			)
+			return cursor.fetchall()
+
+
+def run_readonly_query(sql: str, params: Optional[List[object]] = None):
+	statement = sql.strip()
+	if not statement.lower().startswith("select"):
+		raise ValueError("Only SELECT queries are allowed.")
+	if ";" in statement.rstrip(";"):
+		raise ValueError("Only a single SELECT statement is allowed.")
+
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(statement, tuple(params or []))
+			return cursor.fetchall()
