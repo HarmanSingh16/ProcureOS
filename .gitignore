@@ -26,5 +26,8 @@ dist/
 
 # Environment files
 .env
+<<<<<<< HEAD
 
 .kilo/
+=======
+>>>>>>> 40adead490695e5e4c5820b0d614c0c3e1b40d40
