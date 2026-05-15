@@ -34,42 +34,42 @@ The normalisation pipeline acts as an ETL (Extract, Transform, Load) bridge betw
 
 ### 4.1 `USERS` Table
 
-| Field        | Type           | Required | Notes                |
-| ------------ | -------------- | -------- | -------------------- |
-| `id`         | `UUID`         | Yes      | Primary Key          |
-| `first_name` | `VARCHAR(100)` | Yes      | Non-empty            |
-| `last_name`  | `VARCHAR(100)` | Yes      | Non-empty            |
-| `email`      | `VARCHAR(255)` | Yes      | Valid email format   |
+| Field        | Type           | Required | Notes              |
+| ------------ | -------------- | -------- | ------------------ |
+| `id`         | `UUID`         | Yes      | Primary Key        |
+| `first_name` | `VARCHAR(100)` | Yes      | Non-empty          |
+| `last_name`  | `VARCHAR(100)` | Yes      | Non-empty          |
+| `email`      | `VARCHAR(255)` | Yes      | Valid email format |
 
 ### 4.2 `PRODUCTS` Table
 
-| Field         | Type           | Required | Notes                       |
-| ------------- | -------------- | -------- | --------------------------- |
-| `id`          | `UUID`         | Yes      | Primary Key                 |
-| `name`        | `VARCHAR(255)` | Yes      | Non-empty                   |
-| `description` | `TEXT`         | No       | Optional                    |
-| `price`       | `DECIMAL(10,2)`| Yes      | Must be $\ge 0.00$          |
+| Field         | Type            | Required | Notes              |
+| ------------- | --------------- | -------- | ------------------ |
+| `id`          | `UUID`          | Yes      | Primary Key        |
+| `name`        | `VARCHAR(255)`  | Yes      | Non-empty          |
+| `description` | `TEXT`          | No       | Optional           |
+| `price`       | `DECIMAL(10,2)` | Yes      | Must be $\ge 0.00$ |
 
 ### 4.3 `ORDERS` Table
 
-| Field          | Type           | Required | Notes                                         |
-| -------------- | -------------- | -------- | --------------------------------------------- |
-| `id`           | `UUID`         | Yes      | Primary Key                                   |
-| `user_id`      | `UUID`         | Yes      | Foreign Key to `USERS`                        |
-| `order_number` | `VARCHAR(100)` | Yes      | Non-empty                                     |
-| `status`       | `VARCHAR(50)`  | Yes      | e.g., `PENDING`, `SHIPPED`, `COMPLETED`       |
-| `total`        | `DECIMAL(10,2)`| Yes      | Must be $\ge 0.00$                            |
-| `placed_at`    | `TIMESTAMP`    | Yes      | Defaults to current timestamp if missing     |
+| Field          | Type            | Required | Notes                                    |
+| -------------- | --------------- | -------- | ---------------------------------------- |
+| `id`           | `UUID`          | Yes      | Primary Key                              |
+| `user_id`      | `UUID`          | Yes      | Foreign Key to `USERS`                   |
+| `order_number` | `VARCHAR(100)`  | Yes      | Non-empty                                |
+| `status`       | `VARCHAR(50)`   | Yes      | e.g., `PENDING`, `SHIPPED`, `COMPLETED`  |
+| `total`        | `DECIMAL(10,2)` | Yes      | Must be $\ge 0.00$                       |
+| `placed_at`    | `TIMESTAMP`     | Yes      | Defaults to current timestamp if missing |
 
 ### 4.4 `ORDER_ITEMS` Table
 
-| Field        | Type           | Required | Notes                                         |
-| ------------ | -------------- | -------- | --------------------------------------------- |
-| `id`         | `UUID`         | Yes      | Primary Key                                   |
-| `order_id`   | `UUID`         | Yes      | Foreign Key to `ORDERS`                       |
-| `product_id` | `UUID`         | Yes      | Foreign Key to `PRODUCTS`                     |
-| `quantity`   | `INTEGER`      | Yes      | Must be > 0                                   |
-| `unit_price` | `DECIMAL(10,2)`| Yes      | Must be $\ge 0.00$                            |
+| Field        | Type            | Required | Notes                     |
+| ------------ | --------------- | -------- | ------------------------- |
+| `id`         | `UUID`          | Yes      | Primary Key               |
+| `order_id`   | `UUID`          | Yes      | Foreign Key to `ORDERS`   |
+| `product_id` | `UUID`          | Yes      | Foreign Key to `PRODUCTS` |
+| `quantity`   | `INTEGER`       | Yes      | Must be > 0               |
+| `unit_price` | `DECIMAL(10,2)` | Yes      | Must be $\ge 0.00$        |
 
 ---
 
@@ -77,12 +77,12 @@ The normalisation pipeline acts as an ETL (Extract, Transform, Load) bridge betw
 
 The pipeline must not halt execution due to individual bad records.
 
-| Scenario                         | Behaviour                                                     |
-| -------------------------------- | ------------------------------------------------------------- |
-| Non-required field is `NULL`     | Validate as `null`/`None` and pass to insertion               |
-| Required field is `NULL`         | Log error, quarantine to `failed_records` dict, do not insert |
-| UUID is malformed                | Log error, quarantine to `failed_records` dict, do not insert |
-| Value violates range checks      | Log error, quarantine to `failed_records` dict, do not insert |
+| Scenario                     | Behaviour                                                     |
+| ---------------------------- | ------------------------------------------------------------- |
+| Non-required field is `NULL` | Validate as `null`/`None` and pass to insertion               |
+| Required field is `NULL`     | Log error, quarantine to `failed_records` dict, do not insert |
+| UUID is malformed            | Log error, quarantine to `failed_records` dict, do not insert |
+| Value violates range checks  | Log error, quarantine to `failed_records` dict, do not insert |
 
 ---
 
@@ -95,3 +95,4 @@ The pipeline must not halt execution due to individual bad records.
 4. Quarantine   Catch ValidationError. Append row and error trace to failed list.
 5. Serialize    Call .model_dump() on valid records to generate clean dictionaries.
 6. Upsert       Execute INSERT ... ON CONFLICT DO UPDATE into target PostgreSQL.
+```

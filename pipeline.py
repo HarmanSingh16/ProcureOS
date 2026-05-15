@@ -9,11 +9,15 @@ import schemas
 # --- 1. DATABASE CONNECTIONS ---
 def get_source_db():
     """Connects to the legacy/staging SQL database."""
-    return psycopg2.connect("dbname=legacy_staging user=admin password=secret")
+    return psycopg2.connect(
+        "dbname=procureos_db user=kushal password=kushal host=100.72.202.71 port=5432"
+    )
 
 def get_target_db():
     """Connects to the Agent-First PostgreSQL database."""
-    return psycopg2.connect("dbname=prod_marketplace user=admin password=secret")
+    return psycopg2.connect(
+        "dbname=procureos_db user=kushal password=kushal host=100.72.202.71 port=5432"
+    )
 
 # --- 2. THE NORMALIZATION ENGINE ---
 def process_table(source_conn, target_conn, table_name, schema_class, query):
