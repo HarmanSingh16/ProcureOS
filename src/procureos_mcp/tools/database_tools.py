@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, EmailStr
 
-import schemas
+from procureos_mcp import schemas
 from procureos_mcp.db.queries import (
 	create_order,
 	create_order_items,

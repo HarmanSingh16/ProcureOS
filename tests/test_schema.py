@@ -1,7 +1,7 @@
 import pytest
 
 from pydantic import ValidationError
-from schemas import OrderSchema
+from procureos_mcp.schemas import OrderSchema
 
 
 def test_order_schema_rejects_bad_data():
