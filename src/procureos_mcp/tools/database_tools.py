@@ -10,6 +10,9 @@ from procureos_mcp.db.queries import (
 	create_order,
 	create_order_items,
 	get_order_by_number,
+	get_order_items_for_order,
+	get_orders_by_status,
+	get_orders_for_user,
 	get_product_by_id,
 	get_user_by_email,
 	search_products,
@@ -38,6 +41,18 @@ class DraftPOQuery(BaseModel):
 
 class OrderStatusQuery(BaseModel):
 	order_number: str = Field(..., description="The ORD-XXXXXX number to check.")
+
+
+class ProductLookupQuery(BaseModel):
+	product_id: uuid.UUID = Field(..., description="The UUID of the product.")
+
+
+class OrderStatusListQuery(BaseModel):
+	status: str = Field(..., description="Order status like PENDING or SHIPPED.")
+
+
+class BuyerOrdersQuery(BaseModel):
+	buyer_email: EmailStr = Field(..., description="Email of the procurement officer.")
 
 
 def register_database_tools(mcp):
@@ -137,5 +152,70 @@ def register_database_tools(mcp):
 
 			clean_order = schemas.OrderSchema(**row).model_dump(mode="json")
 			return to_json({"status": "success", "data": clean_order})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def get_product_details(query: ProductLookupQuery) -> str:
+		"""Get a product record by ID."""
+		try:
+			row = get_product_by_id(str(query.product_id))
+			if not row:
+				return to_json({"error": "Product not found."})
+
+			clean_product = schemas.ProductSchema(**row).model_dump(mode="json")
+			return to_json({"status": "success", "data": clean_product})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def list_purchase_orders_by_status(query: OrderStatusListQuery) -> str:
+		"""List purchase orders by status."""
+		try:
+			rows = get_orders_by_status(query.status)
+			orders = [schemas.OrderSchema(**row).model_dump(mode="json") for row in rows]
+
+			if not orders:
+				return to_json({"status": "no_results", "message": "No orders found."})
+			return to_json({"status": "success", "data": orders})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def list_purchase_orders_for_buyer(query: BuyerOrdersQuery) -> str:
+		"""List purchase orders for a procurement officer."""
+		try:
+			user_row = get_user_by_email(query.buyer_email)
+			if not user_row:
+				return to_json({"error": "Procurement officer email not found."})
+
+			user = schemas.UserSchema(**user_row)
+			rows = get_orders_for_user(str(user.id))
+			orders = [schemas.OrderSchema(**row).model_dump(mode="json") for row in rows]
+
+			if not orders:
+				return to_json({"status": "no_results", "message": "No orders found."})
+			return to_json({"status": "success", "data": orders})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def get_purchase_order_details(query: OrderStatusQuery) -> str:
+		"""Fetch a purchase order with line items."""
+		try:
+			row = get_order_by_number(query.order_number)
+			if not row:
+				return to_json({"error": "Purchase order not found."})
+
+			order = schemas.OrderSchema(**row).model_dump(mode="json")
+			item_rows = get_order_items_for_order(str(order["id"]))
+			items = []
+			for item_row in item_rows:
+				base_item = schemas.OrderItemSchema(**item_row).model_dump(mode="json")
+				base_item["product_name"] = item_row.get("product_name")
+				base_item["product_description"] = item_row.get("product_description")
+				items.append(base_item)
+
+			return to_json({"status": "success", "order": order, "items": items})
 		except Exception as exc:
 			return to_json({"error": str(exc)})

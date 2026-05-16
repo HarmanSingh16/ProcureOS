@@ -36,7 +36,7 @@ def test_search_products_builds_results(monkeypatch):
 
 	monkeypatch.setattr(queries, "get_connection", lambda: FakeConn())
 
-	rows = queries.search_products("widget", max_unit_price=25.0, limit=5)
+	rows = queries.search_products("widget", max_unit_price=25.0)
 	assert rows == expected
 
 
@@ -234,3 +234,117 @@ def test_get_order_by_number(monkeypatch):
 
 	row = queries.get_order_by_number("ORD-123456")
 	assert row == expected
+
+
+def test_get_orders_by_status(monkeypatch):
+	expected = [
+		{"id": uuid.uuid4(), "status": "PENDING", "order_number": "ORD-1"},
+		{"id": uuid.uuid4(), "status": "PENDING", "order_number": "ORD-2"},
+	]
+
+	class FakeCursor:
+		def execute(self, sql, params):
+			self.sql = sql
+			self.params = params
+
+		def fetchall(self):
+			return expected
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+	class FakeConn:
+		def cursor(self, cursor_factory=None):
+			return FakeCursor()
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+	monkeypatch.setattr(queries, "get_connection", lambda: FakeConn())
+
+	rows = queries.get_orders_by_status("PENDING")
+	assert rows == expected
+
+
+def test_get_orders_for_user(monkeypatch):
+	expected = [
+		{"id": uuid.uuid4(), "user_id": uuid.uuid4(), "order_number": "ORD-1"},
+	]
+
+	class FakeCursor:
+		def execute(self, sql, params):
+			self.sql = sql
+			self.params = params
+
+		def fetchall(self):
+			return expected
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+	class FakeConn:
+		def cursor(self, cursor_factory=None):
+			return FakeCursor()
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+	monkeypatch.setattr(queries, "get_connection", lambda: FakeConn())
+
+	rows = queries.get_orders_for_user(str(expected[0]["user_id"]))
+	assert rows == expected
+
+
+def test_get_order_items_for_order(monkeypatch):
+	expected = [
+		{
+			"id": uuid.uuid4(),
+			"order_id": uuid.uuid4(),
+			"product_id": uuid.uuid4(),
+			"quantity": 2,
+			"unit_price": 10.0,
+			"product_name": "Widget",
+			"product_description": "A",
+		},
+	]
+
+	class FakeCursor:
+		def execute(self, sql, params):
+			self.sql = sql
+			self.params = params
+
+		def fetchall(self):
+			return expected
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+	class FakeConn:
+		def cursor(self, cursor_factory=None):
+			return FakeCursor()
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+	monkeypatch.setattr(queries, "get_connection", lambda: FakeConn())
+
+	rows = queries.get_order_items_for_order(str(expected[0]["order_id"]))
+	assert rows == expected

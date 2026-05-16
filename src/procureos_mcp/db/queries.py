@@ -5,7 +5,7 @@ from psycopg2.extras import RealDictCursor
 from procureos_mcp.db.connection import get_connection
 
 
-def search_products(query_terms: str, max_unit_price: Optional[float], limit: int = 10):
+def search_products(query_terms: str, max_unit_price: Optional[float]):
 	sql = "SELECT * FROM products WHERE (name ILIKE %s OR description ILIKE %s)"
 	params: List[object] = [f"%{query_terms}%", f"%{query_terms}%"]
 
@@ -13,12 +13,31 @@ def search_products(query_terms: str, max_unit_price: Optional[float], limit: in
 		sql += " AND price <= %s"
 		params.append(max_unit_price)
 
-	sql += " ORDER BY name ASC LIMIT %s"
-	params.append(limit)
+	sql += " ORDER BY name ASC"
 
 	with get_connection() as conn:
 		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
 			cursor.execute(sql, tuple(params))
+			return cursor.fetchall()
+
+
+def get_orders_by_status(status: str):
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(
+				"SELECT * FROM orders WHERE status = %s ORDER BY placed_at DESC",
+				(status,),
+			)
+			return cursor.fetchall()
+
+
+def get_orders_for_user(user_id: str):
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(
+				"SELECT * FROM orders WHERE user_id = %s ORDER BY placed_at DESC",
+				(user_id,),
+			)
 			return cursor.fetchall()
 
 
@@ -81,3 +100,26 @@ def get_order_by_number(order_number: str):
 				"SELECT * FROM orders WHERE order_number = %s", (order_number,)
 			)
 			return cursor.fetchone()
+
+
+def get_order_items_for_order(order_id: str):
+	with get_connection() as conn:
+		with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+			cursor.execute(
+				"""
+				SELECT
+					order_items.id,
+					order_items.order_id,
+					order_items.product_id,
+					order_items.quantity,
+					order_items.unit_price,
+					products.name AS product_name,
+					products.description AS product_description
+				FROM order_items
+				JOIN products ON order_items.product_id = products.id
+				WHERE order_items.order_id = %s
+				ORDER BY products.name ASC
+				""",
+				(order_id,),
+			)
+			return cursor.fetchall()
