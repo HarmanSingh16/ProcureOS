@@ -49,7 +49,7 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_org_id ON users(org_id);
-CREATE INDEX idx_users_email  ON users(email);
+-- NOTE: idx_users_email omitted — the UNIQUE constraint on email already creates an implicit unique index.
 
 COMMENT ON TABLE  users           IS 'Procurement platform users. Each user belongs to one organization and has a role determining their permissions.';
 COMMENT ON COLUMN users.org_id    IS 'FK to organizations. Scopes all user actions to their tenant.';
@@ -83,7 +83,7 @@ CREATE TABLE product_catalog (
 );
 
 CREATE INDEX idx_product_catalog_category_id ON product_catalog(category_id);
-CREATE INDEX idx_product_catalog_sku         ON product_catalog(sku);
+-- NOTE: idx_product_catalog_sku omitted — the UNIQUE constraint on sku already creates an implicit unique index.
 CREATE INDEX idx_product_catalog_name_trgm   ON product_catalog USING gin (name gin_trgm_ops);
 
 COMMENT ON TABLE  product_catalog                 IS 'Master product definitions independent of any vendor. Each product has a unique global SKU. Vendor-specific pricing and stock are in vendor_products.';
@@ -169,13 +169,13 @@ CREATE TABLE purchase_orders (
 CREATE INDEX idx_purchase_orders_buyer_id  ON purchase_orders(buyer_id);
 CREATE INDEX idx_purchase_orders_vendor_id ON purchase_orders(vendor_id);
 CREATE INDEX idx_purchase_orders_status    ON purchase_orders(status);
-CREATE INDEX idx_purchase_orders_po_number ON purchase_orders(po_number);
+-- NOTE: idx_purchase_orders_po_number omitted — the UNIQUE constraint on po_number already creates an implicit unique index.
 
 COMMENT ON TABLE  purchase_orders                   IS 'Purchase orders created by buyers. Status transitions: draft -> pending -> confirmed/flagged_for_review -> approved/rejected -> shipped -> completed. Orders >= 5000 are auto-flagged for human review.';
 COMMENT ON COLUMN purchase_orders.po_number         IS 'Human-readable PO identifier, format: PO-YYYYMMDD-NNNNNN.';
 COMMENT ON COLUMN purchase_orders.status            IS 'Current PO lifecycle state. Valid values: draft, pending, confirmed, flagged_for_review, approved, rejected, cancelled, shipped, completed.';
 COMMENT ON COLUMN purchase_orders.approval_required IS 'TRUE if total_amount >= 5000. Triggers automatic escalation to review_queue.';
-COMMENT ON COLUMN purchase_orders.approved_by       IS 'Email or name of the human approver who resolved the review. NULL if not yet reviewed.';
+COMMENT ON COLUMN purchase_orders.approved_by       IS 'Email or name of the human approver who resolved the review. NULL if not yet reviewed. Intentionally VARCHAR rather than a UUID FK to users — allows recording external approvers who may not have platform accounts.';
 
 -- =============================================================================
 -- 8. po_line_items

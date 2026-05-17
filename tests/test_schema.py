@@ -177,6 +177,15 @@ def test_line_item_valid():
     assert li.quantity == 10
 
 
+def test_line_item_without_line_total():
+    """line_total is DB-generated (output-only), so it should be optional for input."""
+    li = POLineItemSchema(
+        id=uuid4(), po_id=uuid4(), vendor_product_id=uuid4(),
+        quantity=10, unit_price=Decimal("50"),
+    )
+    assert li.line_total is None
+
+
 def test_line_item_zero_quantity():
     with pytest.raises(ValidationError):
         POLineItemSchema(

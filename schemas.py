@@ -85,7 +85,9 @@ class POLineItemSchema(BaseDBModel):
     vendor_product_id: UUID
     quantity: int = Field(..., gt=0)
     unit_price: Decimal = Field(..., ge=Decimal("0"))
-    line_total: Decimal = Field(..., ge=Decimal("0"))
+    # line_total is a DB-generated column (GENERATED ALWAYS AS quantity * unit_price STORED).
+    # It is output-only — never provided on INSERT. Optional for input validation use cases.
+    line_total: Optional[Decimal] = Field(default=None, ge=Decimal("0"))
 
 
 class ReviewQueueSchema(BaseDBModel):

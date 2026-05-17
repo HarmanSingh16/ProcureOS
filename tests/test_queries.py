@@ -300,3 +300,283 @@ def test_run_readonly_query_select(monkeypatch):
 def test_run_readonly_query_rejects_insert():
     with pytest.raises(ValueError, match="Only SELECT queries are allowed"):
         queries.run_readonly_query("INSERT INTO vendors (name) VALUES ('hack')")
+
+
+def test_run_readonly_query_rejects_multi_statement():
+    with pytest.raises(ValueError, match="Only a single SELECT statement is allowed"):
+        queries.run_readonly_query("SELECT 1; DROP TABLE vendors")
+
+
+def test_run_readonly_query_sets_read_only(monkeypatch):
+    """Verify that SET TRANSACTION READ ONLY is issued before the user query."""
+    executed_statements = []
+
+    class TrackingCursor(FakeCursor):
+        def execute(self, sql, params=None):
+            executed_statements.append(sql)
+
+    class TrackingConn(FakeConn):
+        def cursor(self, cursor_factory=None):
+            return TrackingCursor([{"id": uuid4(), "x": 1}])
+
+    monkeypatch.setattr(queries, "get_connection", lambda: TrackingConn([]))
+
+    queries.run_readonly_query("SELECT * FROM vendors")
+    assert len(executed_statements) == 2
+    assert executed_statements[0] == "SET TRANSACTION READ ONLY"
+    assert "SELECT * FROM vendors" in executed_statements[1]
+
+
+# ---------------------------------------------------------------------------
+# 7. create_purchase_order
+# ---------------------------------------------------------------------------
+
+class MultiStepCursor:
+    """Fake cursor that returns different results for sequential execute() calls.
+
+    Accepts a list of result-rows; each call to execute() advances to the
+    next set, and fetchone()/fetchall() return from that set.
+    """
+
+    def __init__(self, step_results: list):
+        self._steps = step_results
+        self._index = -1
+        self._current = []
+
+    def execute(self, sql, params=None):
+        self._index += 1
+        if self._index < len(self._steps):
+            self._current = self._steps[self._index]
+        else:
+            self._current = []
+
+    def fetchone(self):
+        return self._current[0] if self._current else None
+
+    def fetchall(self):
+        return self._current
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+class MultiStepConn:
+    """Fake connection that uses a MultiStepCursor."""
+
+    def __init__(self, step_results: list):
+        self._step_results = step_results
+        self.committed = False
+
+    def cursor(self, cursor_factory=None):
+        return MultiStepCursor(self._step_results)
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+def test_create_purchase_order_below_threshold(monkeypatch):
+    """PO under $5,000 should be 'pending' and not auto-flagged."""
+    vendor_id = str(uuid4())
+    buyer_id = str(uuid4())
+    product_id = str(uuid4())
+    vp_id = uuid4()
+    po_id = uuid4()
+
+    # Step sequence for create_purchase_order:
+    # 1. SELECT next_seq for PO number
+    # 2. SELECT vendor_product (for each item — 1 item here)
+    # 3. INSERT purchase_order RETURNING *
+    # 4. INSERT po_line_item RETURNING *
+    step_results = [
+        # 1. next PO sequence
+        [{"next_seq": 1}],
+        # 2. vendor_product lookup
+        [{"vendor_product_id": vp_id, "unit_price": Decimal("100.00"), "moq": 1}],
+        # 3. INSERT PO RETURNING *
+        [{
+            "id": po_id,
+            "po_number": "PO-20250115-000001",
+            "buyer_id": uuid4(),
+            "vendor_id": uuid4(),
+            "status": "pending",
+            "total_amount": Decimal("1000.00"),
+            "required_by_date": None,
+            "approval_required": False,
+            "approval_reason": None,
+            "notes": None,
+            "created_at": datetime(2025, 1, 15),
+            "updated_at": datetime(2025, 1, 15),
+        }],
+        # 4. INSERT line item RETURNING *
+        [{
+            "id": uuid4(),
+            "po_id": po_id,
+            "vendor_product_id": vp_id,
+            "quantity": 10,
+            "unit_price": Decimal("100.00"),
+            "line_total": Decimal("1000.00"),
+        }],
+    ]
+
+    monkeypatch.setattr(queries, "get_connection", lambda: MultiStepConn(step_results))
+
+    result = queries.create_purchase_order(
+        buyer_id=buyer_id,
+        vendor_id=vendor_id,
+        items=[{"product_id": product_id, "quantity": 10}],
+    )
+    assert result["status"] == "pending"
+    assert "line_items" in result
+    assert len(result["line_items"]) == 1
+
+
+def test_create_purchase_order_auto_flags_above_threshold(monkeypatch):
+    """PO >= $5,000 should be 'flagged_for_review' with a review queue entry."""
+    vendor_id = str(uuid4())
+    buyer_id = str(uuid4())
+    product_id = str(uuid4())
+    vp_id = uuid4()
+    po_id = uuid4()
+
+    # Steps: PO seq, vendor_product, INSERT PO, INSERT line_item,
+    #         review seq, INSERT review_queue
+    step_results = [
+        [{"next_seq": 1}],
+        [{"vendor_product_id": vp_id, "unit_price": Decimal("500.00"), "moq": 1}],
+        [{
+            "id": po_id,
+            "po_number": "PO-20250115-000001",
+            "buyer_id": uuid4(),
+            "vendor_id": uuid4(),
+            "status": "flagged_for_review",
+            "total_amount": Decimal("5000.00"),
+            "required_by_date": None,
+            "approval_required": True,
+            "approval_reason": "Total amount $5000.00 exceeds $5,000.00 threshold",
+            "notes": None,
+            "created_at": datetime(2025, 1, 15),
+            "updated_at": datetime(2025, 1, 15),
+        }],
+        [{
+            "id": uuid4(),
+            "po_id": po_id,
+            "vendor_product_id": vp_id,
+            "quantity": 10,
+            "unit_price": Decimal("500.00"),
+            "line_total": Decimal("5000.00"),
+        }],
+        # review seq
+        [{"next_seq": 1}],
+        # INSERT review_queue (no RETURNING, returns nothing)
+        [],
+    ]
+
+    monkeypatch.setattr(queries, "get_connection", lambda: MultiStepConn(step_results))
+
+    result = queries.create_purchase_order(
+        buyer_id=buyer_id,
+        vendor_id=vendor_id,
+        items=[{"product_id": product_id, "quantity": 10}],
+    )
+    assert result["status"] == "flagged_for_review"
+    assert result["approval_required"] is True
+
+
+def test_create_purchase_order_vendor_not_carrying_product(monkeypatch):
+    """Should raise ValueError when vendor doesn't carry the requested product."""
+    vendor_id = str(uuid4())
+    buyer_id = str(uuid4())
+    product_id = str(uuid4())
+
+    step_results = [
+        # 1. next PO sequence
+        [{"next_seq": 1}],
+        # 2. vendor_product lookup — not found
+        [],
+    ]
+
+    monkeypatch.setattr(queries, "get_connection", lambda: MultiStepConn(step_results))
+
+    with pytest.raises(ValueError, match="does not carry product"):
+        queries.create_purchase_order(
+            buyer_id=buyer_id,
+            vendor_id=vendor_id,
+            items=[{"product_id": product_id, "quantity": 5}],
+        )
+
+
+def test_create_purchase_order_below_moq(monkeypatch):
+    """Should raise ValueError when quantity is below MOQ."""
+    vendor_id = str(uuid4())
+    buyer_id = str(uuid4())
+    product_id = str(uuid4())
+    vp_id = uuid4()
+
+    step_results = [
+        [{"next_seq": 1}],
+        [{"vendor_product_id": vp_id, "unit_price": Decimal("100.00"), "moq": 10}],
+    ]
+
+    monkeypatch.setattr(queries, "get_connection", lambda: MultiStepConn(step_results))
+
+    with pytest.raises(ValueError, match="below MOQ"):
+        queries.create_purchase_order(
+            buyer_id=buyer_id,
+            vendor_id=vendor_id,
+            items=[{"product_id": product_id, "quantity": 3}],
+        )
+
+
+# ---------------------------------------------------------------------------
+# 8. create_review
+# ---------------------------------------------------------------------------
+
+def test_create_review(monkeypatch):
+    """Should create a review queue entry and flag the PO."""
+    po_id = str(uuid4())
+    review_id = uuid4()
+
+    step_results = [
+        # 1. next review sequence
+        [{"next_seq": 1}],
+        # 2. INSERT review RETURNING *
+        [{
+            "id": review_id,
+            "review_number": "REV-20250115-000001",
+            "po_id": uuid4(),
+            "assigned_to": None,
+            "reason": "Over threshold",
+            "urgency": "high",
+            "status": "pending_review",
+            "created_at": datetime(2025, 1, 15),
+            "resolved_at": None,
+        }],
+        # 3. UPDATE purchase_orders SET status (no return needed)
+        [],
+    ]
+
+    monkeypatch.setattr(queries, "get_connection", lambda: MultiStepConn(step_results))
+
+    result = queries.create_review(
+        po_id=po_id,
+        reason="Over threshold",
+        urgency="high",
+    )
+    assert result["review_number"] == "REV-20250115-000001"
+    assert result["urgency"] == "high"
+    assert result["status"] == "pending_review"

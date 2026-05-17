@@ -1,6 +1,7 @@
 """MCP database tool registration for ProcureOS B2B procurement."""
 
 import json
+from typing import Optional
 
 from procureos_mcp.db import queries
 from procureos_mcp.db import schema
@@ -47,15 +48,15 @@ def register_database_tools(mcp) -> None:
     @mcp.tool()
     def search_vendors(
         query: str,
-        location_state: str = None,
-        certifications: str = None,
-        min_reliability: float = None,
+        location_state: Optional[str] = None,
+        certifications: Optional[str] = None,
+        min_reliability: Optional[float] = None,
         limit: int = 10,
     ) -> str:
         """Search for active vendors that carry products matching a keyword query.
 
         Optionally filter by US state, required certifications (comma-separated,
-        e.g. 'ISO9001,EPEAT'), and minimum reliability score (0.0 to 1.0).
+        e.g. 'ISO_9001,EPEAT'), and minimum reliability score (0.0 to 1.0).
         Returns vendor details with a count of matched products.
         """
         try:
@@ -138,8 +139,8 @@ def register_database_tools(mcp) -> None:
         buyer_id: str,
         vendor_id: str,
         items: str,
-        required_by_date: str = None,
-        notes: str = None,
+        required_by_date: Optional[str] = None,
+        notes: Optional[str] = None,
     ) -> str:
         """Create a new purchase order with line items.
 

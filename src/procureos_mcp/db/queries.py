@@ -1,12 +1,11 @@
 """ProcureOS database query functions for B2B consumer electronics procurement."""
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-import psycopg2.extras
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 
 from procureos_mcp.db.connection import get_connection
 
@@ -76,7 +75,7 @@ def search_vendors(
 
     if certifications is not None and len(certifications) > 0:
         sql += " AND v.certifications @> %s::jsonb"
-        params.append(psycopg2.extras.Json(certifications))
+        params.append(Json(certifications))
 
     if min_reliability is not None:
         sql += " AND v.reliability_score >= %s"
@@ -196,6 +195,8 @@ def compare_vendors(
             f"Must be one of: price, lead_time, reliability."
         )
 
+    # SAFETY: order_clause is always from the hardcoded order_clause_map above,
+    # never from user input, so the f-string interpolation is injection-safe.
     sql = f"""
     SELECT
         v.id                    AS vendor_id,
@@ -249,7 +250,7 @@ def create_purchase_order(
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Generate PO number: PO-YYYYMMDD-NNNNNN
-            today_str = datetime.utcnow().strftime("%Y%m%d")
+            today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
             cur.execute(
                 """
                 SELECT COALESCE(
@@ -268,10 +269,14 @@ def create_purchase_order(
             line_items_data: List[Dict[str, Any]] = []
             total_amount = Decimal("0")
 
+            # NOTE: If an exception is raised (e.g. ValueError for missing
+            # vendor product or MOQ violation), conn.commit() is never called.
+            # psycopg2's default autocommit=False ensures the transaction is
+            # implicitly rolled back when the connection context manager exits.
             for item in items:
                 cur.execute(
                     """
-                    SELECT vp.id AS vendor_product_id, vp.unit_price
+                    SELECT vp.id AS vendor_product_id, vp.unit_price, vp.moq
                     FROM vendor_products vp
                     WHERE vp.vendor_id  = %s
                       AND vp.product_id = %s
@@ -285,6 +290,12 @@ def create_purchase_order(
                     )
 
                 qty = item["quantity"]
+                moq = vp_row.get("moq", 1)
+                if qty < moq:
+                    raise ValueError(
+                        f"Quantity {qty} is below MOQ {moq} for product {item['product_id']}."
+                    )
+
                 unit_price = vp_row["unit_price"]
                 line_total = unit_price * qty
                 total_amount += line_total
@@ -348,7 +359,7 @@ def create_purchase_order(
 
             # If flagged, auto-create a review queue entry
             if approval_required:
-                rev_today = datetime.utcnow().strftime("%Y%m%d")
+                rev_today = datetime.now(timezone.utc).strftime("%Y%m%d")
                 cur.execute(
                     """
                     SELECT COALESCE(
@@ -424,7 +435,7 @@ def create_review(
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Generate review number: REV-YYYYMMDD-NNNNNN
-            today_str = datetime.utcnow().strftime("%Y%m%d")
+            today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
             cur.execute(
                 """
                 SELECT COALESCE(
@@ -483,5 +494,6 @@ def run_readonly_query(sql: str, params: Optional[List] = None) -> List[dict]:
 
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
             cur.execute(statement, tuple(params or []))
             return _serialize_rows(cur.fetchall())
