@@ -1,11 +1,13 @@
+import json
 import random
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from procureos_mcp import schemas
+from procureos_mcp.db import queries
 from procureos_mcp.db.queries import (
 	create_order,
 	create_order_items,
@@ -217,5 +219,65 @@ def register_database_tools(mcp):
 				items.append(base_item)
 
 			return to_json({"status": "success", "order": order, "items": items})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def compare_vendors(sku: str, quantity: int, rank_by: str = "price") -> str:
+		"""Compare all active vendors carrying a specific SKU."""
+		try:
+			results = queries.compare_vendors(sku=sku, quantity=quantity, rank_by=rank_by)
+			if not results:
+				return to_json(
+					{"status": "no_results", "message": f"No vendors found for SKU {sku}."}
+				)
+			return to_json({"status": "success", "data": results})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def create_purchase_order(
+		buyer_id: str,
+		vendor_id: str,
+		items: str,
+		required_by_date: Optional[str] = None,
+		notes: Optional[str] = None,
+	) -> str:
+		"""Create a new purchase order with line items."""
+		try:
+			parsed_items = json.loads(items)
+			result = queries.create_purchase_order(
+				buyer_id=buyer_id,
+				vendor_id=vendor_id,
+				items=parsed_items,
+				required_by_date=required_by_date,
+				notes=notes,
+			)
+			return to_json({"status": "success", "data": result})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def get_po_status(po_id: str) -> str:
+		"""Check the status of a purchase order by its UUID."""
+		try:
+			result = queries.get_po_status(po_id=po_id)
+			if result is None:
+				return to_json(
+					{
+						"status": "not_found",
+						"message": f"Purchase order {po_id} not found.",
+					}
+				)
+			return to_json({"status": "success", "data": result})
+		except Exception as exc:
+			return to_json({"error": str(exc)})
+
+	@mcp.tool()
+	def flag_for_review(po_id: str, reason: str, urgency: str) -> str:
+		"""Flag a purchase order for manual review."""
+		try:
+			result = queries.create_review(po_id=po_id, reason=reason, urgency=urgency)
+			return to_json({"status": "success", "data": result})
 		except Exception as exc:
 			return to_json({"error": str(exc)})
