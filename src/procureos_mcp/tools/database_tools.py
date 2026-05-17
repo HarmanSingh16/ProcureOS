@@ -419,6 +419,41 @@ def register_database_tools(mcp) -> None:
         except Exception as exc:
             return to_json({"status": "error", "error": str(exc)})
 
+    @mcp.tool()
+    def check_access(api_key: str, *, is_hashed: bool = False) -> str:
+        """Return API key access details for diagnostics."""
+        try:
+            if not api_key or not isinstance(api_key, str):
+                raise ValueError("API key is required.")
+
+            key_hash = api_key if is_hashed else hashlib.sha256(api_key.encode()).hexdigest()
+
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT ak.id AS key_id, ak.scopes,
+                               ak.is_active AS key_active, ak.expires_at,
+                               ak.last_used_at, ak.created_at AS key_created_at,
+                               bc.id AS contact_id, bc.buyer_id, bc.full_name,
+                               bc.email, bc.role, bc.is_active AS contact_active,
+                               b.company_name, b.status AS buyer_status,
+                               b.credit_limit, b.billing_address
+                        FROM api_keys ak
+                        JOIN buyer_contacts bc ON bc.id = ak.contact_id
+                        JOIN buyers        b  ON b.id  = bc.buyer_id
+                        WHERE ak.key_hash = %s
+                    """, (key_hash,))
+                    row = cur.fetchone()
+
+            if not row:
+                return to_json({"status": "not_found", "message": "API key not found."})
+
+            return to_json({"status": "success", "data": _serialize_row(row)})
+        except ValueError as exc:
+            return to_json({"status": "error", "error": str(exc)})
+        except Exception as exc:
+            return to_json({"status": "error", "error": str(exc)})
+
     # ------------------------------------------------------------------
     # 2. Catalog browsing (requires catalog:read or catalog:search)
     # ------------------------------------------------------------------
@@ -453,8 +488,6 @@ def register_database_tools(mcp) -> None:
             if max_price is not None:
                 _validate_price(max_price, "max_price")
 
-            # Clamp limit to a sane range
-            limit = max(1, min(limit, 100))
 
             safe_query = _sanitize_like(query.strip())
 
@@ -490,8 +523,7 @@ def register_database_tools(mcp) -> None:
                         JOIN categories cat ON cat.id = p.category_id
                         WHERE {where}
                         ORDER BY similarity(p.name, %s) DESC
-                        LIMIT %s
-                    """, (*params, query.strip(), limit))
+                    """, (*params, query.strip()))
                     results = _serialize_rows(cur.fetchall())
 
             _log_action(caller["contact_id"], caller["buyer_id"],
@@ -674,7 +706,19 @@ def register_database_tools(mcp) -> None:
                     for item in parsed_items:
                         sku = item["sku"]
                         qty = item["quantity"]
-                        product = products[sku]
+                        product = products.get(sku)
+                        if not product:
+                            raise ValueError(f"SKU {sku} not found.")
+                        if qty < product["moq"]:
+                            raise ValueError(
+                                f"Quantity {qty} is below MOQ {product['moq']} "
+                                f"for {sku}."
+                            )
+                        if qty > product.get("stock_quantity", 0):
+                            raise ValueError(
+                                f"Insufficient stock for {sku}: requested {qty}, "
+                                f"available {product.get('stock_quantity', 0)}."
+                            )
                         line_total = product["unit_price"] * qty
                         total += line_total
                         line_items.append({
