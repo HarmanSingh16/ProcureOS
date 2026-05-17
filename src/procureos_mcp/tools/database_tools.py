@@ -33,14 +33,19 @@ def _get_analytics_connection():
     """
     import psycopg2
     dsn = os.environ.get("ANALYTICS_DATABASE_URL")
-    if not dsn:
-        dsn = "host={host} port={port} dbname={dbname} user={user} password={password}".format(
-            host=os.environ.get("ANALYTICS_DB_HOST", "localhost"),
-            port=os.environ.get("ANALYTICS_DB_PORT", "5432"),
-            dbname=os.environ.get("ANALYTICS_DB_NAME", "analytics"),
-            user=os.environ.get("ANALYTICS_DB_USER", "postgres"),
-            password=os.environ.get("ANALYTICS_DB_PASSWORD", ""),
-        )
+    if dsn:
+        try:
+            return psycopg2.connect(dsn)
+        except Exception:
+            pass
+
+    dsn = "host={host} port={port} dbname={dbname} user={user} password={password}".format(
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=os.environ.get("DB_PORT", "5432"),
+        dbname=os.environ.get("ANALYTICS_DB_NAME", os.environ.get("DB_NAME", "analytics")),
+        user=os.environ.get("DB_USER", "postgres"),
+        password=os.environ.get("DB_PASSWORD", ""),
+    )
     return psycopg2.connect(dsn)
 
 

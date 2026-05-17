@@ -163,15 +163,15 @@ except Exception as e:
 
 section("TEST 2 — _record_metric inserts rows")
 
-TEST_BUSINESS = str(uuid4())
+FIXED_BUSINESS_ID = "550e8400-e29b-41d4-a716-446655440000"
 
-before = analytics_totals().get(TEST_BUSINESS, (0, 0))
+before = analytics_totals().get(FIXED_BUSINESS_ID, (0, 0))
 
-_record_metric(TEST_BUSINESS, reads=1)
-_record_metric(TEST_BUSINESS, reads=1)
-_record_metric(TEST_BUSINESS, writes=1)
+_record_metric(FIXED_BUSINESS_ID, reads=1)
+_record_metric(FIXED_BUSINESS_ID, reads=1)
+_record_metric(FIXED_BUSINESS_ID, writes=1)
 
-after = analytics_totals().get(TEST_BUSINESS, (0, 0))
+after = analytics_totals().get(FIXED_BUSINESS_ID, (0, 0))
 
 check("Read count incremented by 2",
       after[0] - before[0] == 2,
@@ -319,13 +319,13 @@ rows = procureos_query(
 buyer_id = str(rows[0][0]) if rows else None
 check("Buyer ID found", bool(buyer_id), buyer_id)
 
-before = analytics_totals().get(buyer_id, (0, 0))
+before = analytics_totals().get(FIXED_BUSINESS_ID, (0, 0))
 
 # Trigger 2 read ops
 mcp.call("search_catalog", api_key=raw_key, query="MacBook")
 mcp.call("search_catalog", api_key=raw_key, query="monitor")
 
-after = analytics_totals().get(buyer_id, (0, 0))
+after = analytics_totals().get(FIXED_BUSINESS_ID, (0, 0))
 
 check("2 read ops recorded after 2 search_catalog calls",
       after[0] - before[0] == 2,
